@@ -1,4 +1,4 @@
-// #define DEBUG
+#define DEBUG
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -7,8 +7,12 @@
 #include <Adafruit_LC709203F.h>
 #include <Adafruit_NeoPixel.h>
 #include <Adafruit_ThinkInk.h>
-#include <Wire.h>
 #include <SensirionI2CScd4x.h>
+#include <Wire.h>
+
+static constexpr uint32_t VERSION_MAJOR = 0;
+static constexpr uint32_t VERSION_MINOR = 1;
+static constexpr uint32_t VERSION_PATCH = 0;
 
 static constexpr int16_t EPD_DC = 10;    // can be any pin, but required!
 static constexpr int16_t EPD_CS = 9;     // can be any pin, but required!
@@ -25,13 +29,14 @@ static constexpr int16_t FOOTER_SIZE = 3; // text size of footer
 
 static constexpr uint32_t DISPLAY_WAIT = 180; // wait between display updates in seconds
 
-static constexpr uint16_t NUM_MEASUREMENTS = 2; // number of measurements to take
+static constexpr uint32_t NUM_MEASUREMENTS = 2; // number of measurements to take
 static constexpr uint32_t MEASUREMENT_WAIT = 5; // wait between checking measurement in seconds
 static constexpr uint16_t CO2_LIMIT = 1000;     // CO2 ppm limit
-// static constexpr uint16_t SENSOR_ALTITUDE = 181; // altitude in meters
 
 static constexpr int16_t BATT_WIDTH = 3 * FOOTER_SIZE * CHAR_WIDTH;
-static constexpr float BAT_LIMIT = 15.0f;
+static constexpr float BATT_LIMIT = 15.0f;
+
+static constexpr size_t MESSAGE_SIZE = 256;
 
 static ThinkInk_213_Tricolor_RW display(EPD_DC, EPD_RESET, EPD_CS, SRAM_CS, EPD_BUSY);
 
@@ -39,9 +44,10 @@ static SensirionI2CScd4x scd4x;
 
 static Adafruit_LC709203F lc;
 
-Adafruit_NeoPixel neoPixel = Adafruit_NeoPixel(NEOPIXEL_NUM, PIN_NEOPIXEL, NEO_GRB + NEO_KHZ800);
-
 static Adafruit_DPS310 dps;
+
+static uint32_t error;
+static char message[MESSAGE_SIZE];
 
 typedef enum
 {
@@ -50,17 +56,21 @@ typedef enum
   ALIGN_RIGHT
 } Alignment;
 
-void printSCD4xError(uint16_t error, const char *msg)
+typedef enum
 {
-#ifdef DEBUG
-  if (error)
+  ERROR_NONE,
+  ERROR_CO2_SENSOR,
+  ERROR_PRESSURE_SENSOR,
+  ERROR_BATT_SENSOR,
+} Error;
+
+void checkSCD4xError(const uint16_t scd4xError)
+{
+  if (scd4xError)
   {
-    char errorMessage[256];
-    Serial.print(msg);
-    errorToString(error, errorMessage, 256);
-    Serial.println(errorMessage);
+    error = (ERROR_CO2_SENSOR << 16) | scd4xError;
+    errorToString(scd4xError, message, MESSAGE_SIZE);
   }
-#endif
 }
 
 void printfAligned(const uint8_t size, const Alignment alignment, const int16_t y, const uint16_t color, const char *fmt, ...)
@@ -101,48 +111,45 @@ void setup()
   Serial.begin(115200);
   while (!Serial)
     delay(10);
-  Serial.println("Adanet - CO2 monitor");
+  Serial.print("Adanet CO₂ Monitor v");
+  Serial.print(VERSION_MAJOR);
+  Serial.print(".");
+  Serial.print(VERSION_MINOR);
+  Serial.print(".");
+  Serial.println(VERSION_PATCH);
 #else
+  // TODO(drw): is this necessary?
   delay(1000);
 #endif
 
-// setup dps310 pressure sensor
-#ifdef DEBUG
-  Serial.println("DPS310");
-#endif
+  // setup dps310 pressure sensor
   if (!dps.begin_I2C())
   {
-#ifdef DEBUG
-    Serial.println("Failed to find DPS");
-#endif
-    while (1)
-      yield();
+    error = ERROR_PRESSURE_SENSOR << 16;
+    snprintf(message, MESSAGE_SIZE, "Failed to find DPS");
   }
-#ifdef DEBUG
-  Serial.println("DPS OK!");
-#endif
 
-  dps.configurePressure(DPS310_64HZ, DPS310_64SAMPLES);
-  dps.configureTemperature(DPS310_64HZ, DPS310_64SAMPLES);
+  if (error == ERROR_NONE)
+  {
+    dps.configureTemperature(DPS310_64HZ, DPS310_64SAMPLES);
+    dps.configurePressure(DPS310_64HZ, DPS310_64SAMPLES);
 
-  // setup scd4x co2 sensor
-  uint16_t error;
-  Wire.begin();
-  scd4x.begin(Wire);
+    // setup scd4x co2 sensor
+    Wire.begin();
+    scd4x.begin(Wire);
 
-  error = scd4x.setAutomaticSelfCalibration(0);
-  printSCD4xError(error, "Error trying to execute setAutomaticSelfCalibration(): ");
+    checkSCD4xError(scd4x.setAutomaticSelfCalibration(0));
+  }
 
-  // TODO(drw): can be removed once pressure sensor is verified
-  // error = scd4x.setSensorAltitude(SENSOR_ALTITUDE);
-  // printSCD4xError(error, "Error trying to execute setSensorAltitude(): ");
+  if (error == ERROR_NONE)
+  {
+    checkSCD4xError(scd4x.startPeriodicMeasurement());
+  }
 
-  error = scd4x.startPeriodicMeasurement();
-  printSCD4xError(error, "Error trying to execute startPeriodicMeasurement(): ");
-
+  uint32_t measurements = 0;
   uint16_t co2 = 0, pressure = 0;
   float temperature = 0.0f, humidity = 0.0f;
-  for (uint16_t i = 0; i < NUM_MEASUREMENTS; i++)
+  while ((error == ERROR_NONE) && (measurements++ < NUM_MEASUREMENTS))
   {
     // sleep while waiting for next measurement
 #ifdef DEBUG
@@ -155,88 +162,99 @@ void setup()
     if (dps.temperatureAvailable() && dps.pressureAvailable())
     {
       sensors_event_t temp_event, pressure_event;
-
       dps.getEvents(&temp_event, &pressure_event);
+
 #ifdef DEBUG
       Serial.print(F("Temperature = "));
-      Serial.print(temp_event.temperature);
-      Serial.println(" *C");
-
+      Serial.println(temp_event.temperature);
       Serial.print(F("Pressure = "));
-      Serial.print(pressure_event.pressure);
-      Serial.println(" hPa");
+      Serial.println(pressure_event.pressure);
 #endif
 
       pressure = static_cast<uint16_t>(pressure_event.pressure);
-      error = scd4x.setAmbientPressure(pressure);
-      printSCD4xError(error, "Error trying to execute setAmbientPressure(): ");
-    }
-
-    // try to read measurement
-    error = scd4x.readMeasurement(co2, temperature, humidity);
-    printSCD4xError(error, "Error trying to execute readMeasurement(): ");
-
-    if (co2 == 0)
-    {
-#ifdef DEBUG
-      Serial.println("Invalid sample detected, skipping.");
-#endif
+      checkSCD4xError(scd4x.setAmbientPressure(pressure));
     }
     else
     {
-#ifdef DEBUG
-      Serial.print("CO2:");
-      Serial.print(co2);
-      Serial.print("\t");
-      Serial.print("Temperature:");
-      Serial.print(temperature);
-      Serial.print("\t");
-      Serial.print("Humidity:");
-      Serial.println(humidity);
-#endif
+      error = ERROR_PRESSURE_SENSOR << 16;
+      snprintf(message, MESSAGE_SIZE, "Pressure data not available");
     }
+
+    if (error == ERROR_NONE)
+    {
+      // try to read measurement
+      checkSCD4xError(scd4x.readMeasurement(co2, temperature, humidity));
+    }
+
+#ifdef DEBUG
+    if (error == ERROR_NONE)
+    {
+      Serial.print("CO₂ = ");
+      Serial.println(co2);
+      Serial.print("Temperature = ");
+      Serial.println(temperature);
+      Serial.print("Humidity = ");
+      Serial.println(humidity);
+    }
+#endif
   }
 
-  error = scd4x.stopPeriodicMeasurement();
-  printSCD4xError(error, "Error trying to execute stopPeriodicMeasurement(): ");
+  if (error == ERROR_NONE)
+  {
+    checkSCD4xError(scd4x.stopPeriodicMeasurement());
+  }
+
+  if ((error == ERROR_NONE) && (co2 == 0))
+  {
+    error = ERROR_CO2_SENSOR << 16;
+    snprintf(message, MESSAGE_SIZE, "Invalid sample detected");
+  }
 
   // setup lc709203f battery fuel gauge
-  if (!lc.begin())
+  if ((error == ERROR_NONE) && !lc.begin())
   {
-    // TODO(drw): proper error handling here and elsewhere
+    error = ERROR_BATT_SENSOR << 16;
+    snprintf(message, MESSAGE_SIZE, "Couldn't find LC709203F, make sure a battery is plugged in");
+  }
+
+  float batt = 0.0f;
+  if (error == ERROR_NONE)
+  {
 #ifdef DEBUG
-    Serial.println(F("Couldn't find Adafruit LC709203F?\nMake sure a battery is plugged in!"));
-    while (1)
-      delay(10);
+    Serial.println(F("Found LC709203F"));
+    Serial.print("Version: 0x");
+    Serial.println(lc.getICversion(), HEX);
+#endif
+
+    lc.setThermistorB(3950);
+#ifdef DEBUG
+    Serial.print("Thermistor B = ");
+    Serial.println(lc.getThermistorB());
+#endif
+
+    lc.setPackSize(LC709203F_APA_2000MAH);
+    lc.setAlarmVoltage(3.8);
+
+    batt = lc.cellPercent();
+    lc.setPowerMode(LC709203F_POWER_SLEEP);
+
+#ifdef DEBUG
+    Serial.print("Battery = ");
+    Serial.println(batt);
 #endif
   }
-#ifdef DEBUG
-  Serial.println(F("Found LC709203F"));
-  Serial.print("Version: 0x");
-  Serial.println(lc.getICversion(), HEX);
-#endif
-
-  lc.setThermistorB(3950);
-#ifdef DEBUG
-  Serial.print("Thermistor B = ");
-  Serial.println(lc.getThermistorB());
-#endif
-
-  lc.setPackSize(LC709203F_APA_2000MAH);
-  lc.setAlarmVoltage(3.8);
-
-  const float batt = lc.cellPercent();
-  lc.setPowerMode(LC709203F_POWER_SLEEP);
-
-#ifdef DEBUG
-  Serial.print("Battery:");
-  Serial.println(batt);
-#endif
 
   // turn off i2c power
   digitalWrite(I2C_POWER, LOW);
 
 #ifdef DEBUG
+  if (error != ERROR_NONE)
+  {
+    Serial.print("Error = ");
+    Serial.println(error, HEX);
+    Serial.print("Message = ");
+    Serial.println(message);
+  }
   Serial.println();
 #else
   // setup display
@@ -252,32 +270,39 @@ void setup()
 
   display.clearBuffer();
 
-  printfAligned(HEADER_SIZE, ALIGN_LEFT, 0, EPD_BLACK, "% 3.1f%cC", temperature, 0xF7);
-  printfAligned(HEADER_SIZE, ALIGN_RIGHT, 0, EPD_BLACK, "%3.1f%%", humidity);
-
+  const int16_t headerY = 0;
   const int16_t bodyY = (display.height() - BODY_SIZE * CHAR_HEIGHT) / 2;
-  const uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
-  printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);
-
   const int16_t footerY = display.height() - 1 - FOOTER_SIZE * CHAR_HEIGHT;
-  const uint16_t battColor = batt < 15.0f ? EPD_RED : EPD_BLACK;
-  const int16_t x0 = FOOTER_SIZE * CHAR_WIDTH / 2;
-  const int16_t y0 = footerY;
-  const int16_t w = BATT_WIDTH;
-  const int16_t h = FOOTER_SIZE * CHAR_HEIGHT;
-  const int16_t x1 = x0 + w;
-  const int16_t y1 = y0 + h;
-  display.fillRect(x0, y0, static_cast<int16_t>(batt / 100.0f * static_cast<float>(w)), h, battColor);
-  display.drawRect(x0, y0, w, h, battColor);
-  display.fillRect(x1, y0 + h / 4, FOOTER_SIZE * CHAR_WIDTH / 4, h / 2, battColor);
-  // printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "CO%c ppm", 0xFC);
-  printfAligned(HEADER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "%u hPa", pressure);
+  if (error == ERROR_NONE)
+  {
+    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "% 3.1f%cC", temperature, 0xF7);
+    printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%3.1f%%", humidity);
+
+    const uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
+    printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);
+
+    const uint16_t battColor = batt < BATT_LIMIT ? EPD_RED : EPD_BLACK;
+    const int16_t x0 = FOOTER_SIZE * CHAR_WIDTH / 2;
+    const int16_t y0 = footerY;
+    const int16_t w = BATT_WIDTH;
+    const int16_t h = FOOTER_SIZE * CHAR_HEIGHT;
+    const int16_t x1 = x0 + w;
+    const int16_t y1 = y0 + h;
+    display.fillRect(x0, y0, static_cast<int16_t>(batt / 100.0f * static_cast<float>(w)), h, battColor);
+    display.drawRect(x0, y0, w, h, battColor);
+    display.fillRect(x1, y0 + h / 4, FOOTER_SIZE * CHAR_WIDTH / 4, h / 2, battColor);
+    printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "%u hPa", pressure);
+  }
+  else
+  {
+    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_RED, "Error 0x%08X: %s", error, message);
+    printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "v%u.%u.%u", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
+  }
 
   display.display(true);
   // TODO(drw): pull EPD_RESET low, once connected
-  // delay(1500);
 
-  esp_sleep_enable_timer_wakeup((DISPLAY_WAIT - NUM_MEASUREMENTS * MEASUREMENT_WAIT) * 1000000ull);
+  esp_sleep_enable_timer_wakeup((DISPLAY_WAIT - measurements * MEASUREMENT_WAIT) * 1000000ull);
   esp_deep_sleep_start();
 #endif
 }
