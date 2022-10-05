@@ -1,4 +1,4 @@
-#define DEBUG
+// #define DEBUG
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -26,6 +26,7 @@ static constexpr int16_t CHAR_HEIGHT = 8; // height of a character in pixels
 static constexpr int16_t HEADER_SIZE = 3; // text size of header
 static constexpr int16_t BODY_SIZE = 6;   // text size of body
 static constexpr int16_t FOOTER_SIZE = 3; // text size of footer
+static constexpr int16_t ERROR_SIZE = 3;  // text size of error
 
 static constexpr uint32_t DISPLAY_WAIT = 180; // wait between display updates in seconds
 
@@ -111,7 +112,7 @@ void setup()
   Serial.begin(115200);
   while (!Serial)
     delay(10);
-  Serial.print("Adanet CO₂ Monitor v");
+  Serial.print("Adanet CO2 Monitor v");
   Serial.print(VERSION_MAJOR);
   Serial.print(".");
   Serial.print(VERSION_MINOR);
@@ -138,11 +139,6 @@ void setup()
     Wire.begin();
     scd4x.begin(Wire);
 
-    checkSCD4xError(scd4x.setAutomaticSelfCalibration(0));
-  }
-
-  if (error == ERROR_NONE)
-  {
     checkSCD4xError(scd4x.startPeriodicMeasurement());
   }
 
@@ -189,7 +185,7 @@ void setup()
 #ifdef DEBUG
     if (error == ERROR_NONE)
     {
-      Serial.print("CO₂ = ");
+      Serial.print("CO2 = ");
       Serial.println(co2);
       Serial.print("Temperature = ");
       Serial.println(temperature);
@@ -295,12 +291,22 @@ void setup()
   }
   else
   {
-    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_RED, "Error 0x%08X: %s", error, message);
-    printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "v%u.%u.%u", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
+    display.setTextSize(ERROR_SIZE);
+    display.setTextColor(EPD_BLACK);
+    display.setCursor(0, 0);
+    display.println(ESP.getEfuseMac(), HEX);
+    display.print("v");
+    display.println(VERSION_MAJOR);
+    display.print(".");
+    display.print(VERSION_MINOR);
+    display.print(".");
+    display.println(VERSION_PATCH);
+    display.setTextColor(EPD_RED);
+    display.println(error, HEX);
+    display.println(message);
   }
 
   display.display(true);
-  // TODO(drw): pull EPD_RESET low, once connected
 
   esp_sleep_enable_timer_wakeup((DISPLAY_WAIT - measurements * MEASUREMENT_WAIT) * 1000000ull);
   esp_deep_sleep_start();
