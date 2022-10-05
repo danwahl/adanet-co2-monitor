@@ -21,6 +21,8 @@ static constexpr uint32_t MEASUREMENT_WAIT = 5;   // wait between checking measu
 static constexpr uint32_t CALIBRATION_WAIT = 300; // wait between measurement start and calibration
 static constexpr uint16_t CO2_AMBIENT = 415;      // Ambient CO2 for calibration
 
+static constexpr size_t MESSAGE_SIZE = 256;
+
 static ThinkInk_213_Tricolor_RW display(EPD_DC, EPD_RESET, EPD_CS, SRAM_CS, EPD_BUSY);
 
 static SensirionI2CScd4x scd4x;
@@ -28,6 +30,18 @@ static SensirionI2CScd4x scd4x;
 static Adafruit_LC709203F lc;
 
 static Adafruit_DPS310 dps;
+
+bool checkSCD4xError(const uint16_t scd4xError)
+{
+  if (scd4xError)
+  {
+    static char message[MESSAGE_SIZE];
+    errorToString(scd4xError, message, MESSAGE_SIZE);
+    Serial.println(message);
+    return true;
+  }
+  return false;
+}
 
 void setup()
 {
@@ -45,36 +59,26 @@ void setup()
   // setup display
   display.begin(THINKINK_TRICOLOR);
 
-  // enum | orientation | USB
-  // -----|-------------|-------
-  //   0  | landscape   | right
-  //   1  | portrait    | top
-  //   2  | landscape   | left
-  //   3  | portrait    | bottom
-  display.setRotation(2);
-
+  // draw checkerboard pattern to test screen
   display.clearBuffer();
-
-  display.setTextSize(3);
-  display.setTextColor(EPD_BLACK);
-  display.setCursor(0, 0);
-
-  display.println("Adanet Init");
-  display.println("Calibrating");
+  for (int16_t x = 0; x < display.width(); x += 2)
+  {
+    for (int16_t y = 0; y < display.height(); y += 2)
+    {
+      display.drawPixel(x, y, EPD_BLACK);
+      display.drawPixel(x + 1, y + 1, EPD_RED);
+    }
+  }
   display.display(true);
+
+  const uint64_t efuseMac = ESP.getEfuseMac();
+  Serial.print("ESP eFuse MAC: ");
+  Serial.println(efuseMac, HEX);
 
   const uint32_t cpuFreq = getCpuFrequencyMhz();
   Serial.print("CPU Freq = ");
   Serial.print(cpuFreq);
   Serial.println(" MHz");
-  const uint32_t xtalFreq = getXtalFrequencyMhz();
-  Serial.print("XTAL Freq = ");
-  Serial.print(xtalFreq);
-  Serial.println(" MHz");
-  const uint32_t apbFreq = getApbFrequency();
-  Serial.print("APB Freq = ");
-  Serial.print(apbFreq);
-  Serial.println(" Hz");
 
   // setup dps310 pressure sensor
   if (!dps.begin_I2C())
@@ -91,9 +95,8 @@ void setup()
   scd4x.begin(Wire);
 
   uint16_t serial0, serial1, serial2;
-  if (scd4x.getSerialNumber(serial0, serial1, serial2) != 0)
+  if (checkSCD4xError(scd4x.getSerialNumber(serial0, serial1, serial2)))
   {
-    Serial.println("Failed to read SCD4x serial number");
     return;
   }
 
@@ -101,18 +104,21 @@ void setup()
       static_cast<uint64_t>(serial0) << 32 |
       static_cast<uint64_t>(serial1) << 16 |
       static_cast<uint64_t>(serial2);
-  Serial.print("SCD4x serial number = ");
+  Serial.print("SCD4x Serial = ");
   Serial.println(scd4xSerial, HEX);
 
-  if (scd4x.setAutomaticSelfCalibration(0) != 0)
+  // get serial input before starting calibration
+  Serial.println("Press any key to start calibration");
+  while (!Serial.available())
+    delay(10);
+
+  if (checkSCD4xError(scd4x.setAutomaticSelfCalibration(0)))
   {
-    Serial.println("Failed to disable SCD4x ASC");
     return;
   }
 
-  if (scd4x.startPeriodicMeasurement() != 0)
+  if (checkSCD4xError(scd4x.startPeriodicMeasurement()))
   {
-    Serial.println("Failed to start SCD4x measurement");
     return;
   }
 
@@ -135,22 +141,20 @@ void setup()
     Serial.print(F("Pressure = "));
     Serial.println(pressure_event.pressure);
 
-    if (scd4x.setAmbientPressure(pressure_event.pressure) != 0)
+    if (checkSCD4xError(scd4x.setAmbientPressure(pressure_event.pressure)))
     {
-      Serial.println("Failed to set SCD4x ambient pressure");
       return;
     }
 
     uint16_t co2 = 0;
     float temperature = 0.0f, humidity = 0.0f;
 
-    if (scd4x.readMeasurement(co2, temperature, humidity) != 0)
+    if (checkSCD4xError(scd4x.readMeasurement(co2, temperature, humidity)))
     {
-      Serial.println("Failed to read SCD4x measurement");
       return;
     }
 
-    Serial.print("CO₂ = ");
+    Serial.print("CO2 = ");
     Serial.println(co2);
     Serial.print("Temperature = ");
     Serial.println(temperature);
@@ -160,14 +164,17 @@ void setup()
     Serial.println();
   }
 
-  if (scd4x.stopPeriodicMeasurement() != 0)
+  if (checkSCD4xError(scd4x.stopPeriodicMeasurement()))
   {
-    Serial.println("Failed to stop SCD4x measurement");
     return;
   }
 
   uint16_t frcCorrection = 0;
-  if ((scd4x.performForcedRecalibration(CO2_AMBIENT, frcCorrection) != 0) || (frcCorrection == 0xffff))
+  if (checkSCD4xError(scd4x.performForcedRecalibration(CO2_AMBIENT, frcCorrection)))
+  {
+    return;
+  }
+  else if (frcCorrection == 0xffff)
   {
     Serial.println("Failed to perform SCD4x forced recalibration");
     return;
@@ -176,9 +183,8 @@ void setup()
   Serial.print("Forced recalibration correction = ");
   Serial.println(static_cast<int16_t>(frcCorrection - 0x8000));
 
-  if (scd4x.persistSettings() != 0)
+  if (checkSCD4xError(scd4x.persistSettings()))
   {
-    Serial.println("Failed to persist SCD4x settings");
     return;
   }
 
@@ -208,9 +214,6 @@ void setup()
 
   // turn off i2c power
   digitalWrite(I2C_POWER, LOW);
-
-  display.println("Finished!");
-  display.display(true);
 }
 
 void loop()
