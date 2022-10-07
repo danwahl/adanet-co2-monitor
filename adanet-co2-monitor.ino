@@ -32,7 +32,7 @@ static constexpr uint32_t DISPLAY_WAIT = 180; // wait between display updates in
 
 static constexpr uint32_t NUM_MEASUREMENTS = 2; // number of measurements to take
 static constexpr uint32_t MEASUREMENT_WAIT = 5; // wait between checking measurement in seconds
-static constexpr uint16_t CO2_LIMIT = 1000;     // CO2 ppm limit
+static constexpr uint16_t CO2_LIMIT = 800;      // CDC CO2 ppm limit
 
 static constexpr int16_t BATT_WIDTH = 3 * FOOTER_SIZE * CHAR_WIDTH;
 static constexpr float BATT_LIMIT = 15.0f;
@@ -296,13 +296,14 @@ void setup()
     display.setCursor(0, 0);
     display.println(ESP.getEfuseMac(), HEX);
     display.print("v");
-    display.println(VERSION_MAJOR);
+    display.print(VERSION_MAJOR);
     display.print(".");
     display.print(VERSION_MINOR);
     display.print(".");
     display.println(VERSION_PATCH);
     display.setTextColor(EPD_RED);
-    display.println(error, HEX);
+    display.print(error, HEX);
+    display.print(": ");
     display.println(message);
   }
 
