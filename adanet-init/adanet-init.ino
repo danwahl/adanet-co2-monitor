@@ -19,7 +19,7 @@ static constexpr int16_t CHAR_HEIGHT = 8; // height of a character in pixels
 
 static constexpr uint32_t MEASUREMENT_WAIT = 5;   // wait between checking measurement in seconds
 static constexpr uint32_t CALIBRATION_WAIT = 300; // wait between measurement start and calibration
-static constexpr uint16_t CO2_AMBIENT = 415;      // Ambient CO2 for calibration
+static constexpr uint16_t CO2_AMBIENT = 415;      // ambient CO2 for calibration
 
 static constexpr size_t MESSAGE_SIZE = 256;
 
@@ -80,6 +80,30 @@ void setup()
   Serial.print(cpuFreq);
   Serial.println(" MHz");
 
+  // setup lc709203f battery fuel gauge
+  if (!lc.begin())
+  {
+    Serial.println("Couldn't find LC709203F, make sure a battery is plugged in");
+    return;
+  }
+
+  Serial.println(F("Found LC709203F"));
+  Serial.print("Version: 0x");
+  Serial.println(lc.getICversion(), HEX);
+
+  lc.setThermistorB(3950);
+  Serial.print("Thermistor B = ");
+  Serial.println(lc.getThermistorB());
+
+  lc.setPackSize(LC709203F_APA_2000MAH);
+  lc.setAlarmVoltage(3.8);
+
+  const float batt = lc.cellPercent();
+  lc.setPowerMode(LC709203F_POWER_SLEEP);
+
+  Serial.print("Battery = ");
+  Serial.println(batt);
+
   // setup dps310 pressure sensor
   if (!dps.begin_I2C())
   {
@@ -108,14 +132,38 @@ void setup()
   Serial.println(scd4xSerial, HEX);
 
   // get serial input before starting calibration
-  Serial.println("Press any key to start calibration");
+  Serial.println("Perform factory reset? [n]");
   while (!Serial.available())
     delay(10);
 
-  if (checkSCD4xError(scd4x.setAutomaticSelfCalibration(0)))
+  if (Serial.read() == 'y')
   {
-    return;
+    Serial.println("Performing factory reset");
+
+    if (checkSCD4xError(scd4x.performFactoryReset()))
+    {
+      return;
+    }
+
+    if (checkSCD4xError(scd4x.setAutomaticSelfCalibration(0)))
+    {
+      return;
+    }
+
+    if (checkSCD4xError(scd4x.persistSettings()))
+    {
+      return;
+    }
+
+    if (checkSCD4xError(scd4x.reinit()))
+    {
+      return;
+    }
+
+    Serial.println("Factory reset complete");
   }
+
+  Serial.println("Starting forced recalibration");
 
   if (checkSCD4xError(scd4x.startPeriodicMeasurement()))
   {
@@ -123,7 +171,8 @@ void setup()
   }
 
   // pre-calibration measurement loop
-  while (millis() < CALIBRATION_WAIT * 1000)
+  const unsigned long start = millis();
+  while ((millis() - start) < (CALIBRATION_WAIT * 1000))
   {
     // sleep while waiting for next measurement
     delay(MEASUREMENT_WAIT * 1000);
@@ -148,7 +197,6 @@ void setup()
 
     uint16_t co2 = 0;
     float temperature = 0.0f, humidity = 0.0f;
-
     if (checkSCD4xError(scd4x.readMeasurement(co2, temperature, humidity)))
     {
       return;
@@ -169,48 +217,27 @@ void setup()
     return;
   }
 
-  uint16_t frcCorrection = 0;
-  if (checkSCD4xError(scd4x.performForcedRecalibration(CO2_AMBIENT, frcCorrection)))
+  // get serial input before starting calibration
+  Serial.println("Perform forced recalibration? [n]");
+  while (!Serial.available())
+    delay(10);
+
+  if (Serial.read() == 'y')
   {
-    return;
+    uint16_t frcCorrection = 0;
+    if (checkSCD4xError(scd4x.performForcedRecalibration(CO2_AMBIENT, frcCorrection)))
+    {
+      return;
+    }
+    else if (frcCorrection == 0xffff)
+    {
+      Serial.println("Failed to perform SCD4x forced recalibration");
+      return;
+    }
+
+    Serial.print("Forced recalibration correction = ");
+    Serial.println(static_cast<int16_t>(frcCorrection - 0x8000));
   }
-  else if (frcCorrection == 0xffff)
-  {
-    Serial.println("Failed to perform SCD4x forced recalibration");
-    return;
-  }
-
-  Serial.print("Forced recalibration correction = ");
-  Serial.println(static_cast<int16_t>(frcCorrection - 0x8000));
-
-  if (checkSCD4xError(scd4x.persistSettings()))
-  {
-    return;
-  }
-
-  // setup lc709203f battery fuel gauge
-  if (!lc.begin())
-  {
-    Serial.println("Couldn't find LC709203F, make sure a battery is plugged in");
-    return;
-  }
-
-  Serial.println(F("Found LC709203F"));
-  Serial.print("Version: 0x");
-  Serial.println(lc.getICversion(), HEX);
-
-  lc.setThermistorB(3950);
-  Serial.print("Thermistor B = ");
-  Serial.println(lc.getThermistorB());
-
-  lc.setPackSize(LC709203F_APA_2000MAH);
-  lc.setAlarmVoltage(3.8);
-
-  const float batt = lc.cellPercent();
-  lc.setPowerMode(LC709203F_POWER_SLEEP);
-
-  Serial.print("Battery = ");
-  Serial.println(batt);
 
   // turn off i2c power
   digitalWrite(I2C_POWER, LOW);
