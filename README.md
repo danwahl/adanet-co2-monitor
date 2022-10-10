@@ -35,7 +35,7 @@ Most of the COTS parts are from [Adafruit](https://www.adafruit.com/) (hence the
 |   1 | 4494 | Adafruit DPS310 Precision Barometric Pressure/Altitude Sensor - STEMMA   QT/Qwiic              |       6.95 |        6.95 |
 |   1 | 2011 | Lithium Ion Battery - 3.7V 2000mAh                                                             |       12.5 |        12.5 |
 |   2 | 4399 | STEMMA QT / Qwiic JST SH 4-Pin Cable - 50mm Long                                               |       0.95 |         1.9 |
-|     |      |                                                                                                |            |      113.30 |
+|     |      |                                                                                                |            |      123.30 |
 
 In addition, you'll need several fasteners. Most come in the [Adafruit 3299](https://www.adafruit.com/product/3299) kit, but this is overkill (only 20 out of the 380 pieces are used), so you may have better luck at a hardware store. Either way, you'll need:
 
@@ -69,14 +69,14 @@ First assemble the top and bottom of the case separately:
 
 1. Use 4 M2.5 x 6mm screws to attach the 4 M2.5 x 6mm M-F hex standoffs to the inside of the case (using the holes that border the the sensor slot)
 2. Attach the 4-pin STEMMA QT cables to either side of the SCD41 board
-3. Press the SCD41 board onto the four exposed standoffs, with the sensor facing "out" of the case, and use 4 M2.5 hex nuts to secure
+3. Press the SCD41 board onto the four exposed standoffs, with the sensor facing "out" of the case, and use 2 M2.5 hex nuts to secure to the bottom two standoffs
 4. Connect the DPS310 to the 4-pin STEMMA QT cable on the "right" (when facing the non-sensor side) of the SCD41 board
-5. Use 4 M2.5 hex nuts to attach the DPS310 to the top two standoffs, back-to-back with the SCD41 such that the sensor is facing "in" (note: you should first apply some Kapton tape to the back of the DPS310 to avoid shorting to the SCD41)
+5. Use 2 M2.5 hex nuts to attach the DPS310 to the top two standoffs, back-to-back with the SCD41 so that the sensor is facing "in" (note: first apply Kapton/electrical tape to the back of the DPS310 to avoid shorting to the SCD41)
 6. Carefully insert the battery, which should fit snugly lengthwise, and adjacent to the bottom standoffs holding the SCD41 (note: you can use double-sided tape securely affix the battery to the case)
 
 ![adanet-assembly-bottom](images/adanet-assembly-bottom.jpg)
 
-Once both the top and bottom are assembled, connect the remaining 4-pin STEMMA QT and battery to the Feather board (middle and side connectors respectively). Close the lid to ensure a good fit, but don't install the 4 M2.3 x 5mm self-tapping screws until loading the firmware (as the BOOT/DF and Reset buttons are not externally accessible)!
+Once both the top and bottom are assembled, connect the remaining 4-pin STEMMA QT and battery to the Feather board (middle and side connectors respectively). Close the lid to ensure a good fit, but don't install the 4 M2.3 x 5mm self-tapping screws until loading the firmware (as the BOOT/DFU and Reset buttons are not externally accessible)!
 
 Once complete, your final assembly should look like this:
 
@@ -100,15 +100,15 @@ To prepare your development environment:
 3. Using the Library Manager (Tools/Manage Libraries...), install the remaining libraries listed above
 4. Under Tools/Board (or Arduino: Board Config), select the "Adafruit Feather ESP32-S3 2MB PSRAM" option
 5. In the same menu, change "USB Mode" to "Hardware CDC and JTAG" (see [here](https://github.com/espressif/arduino-esp32/issues/6762)) and "Upload Mode" to "UART0/Hardware CDC"
-6. Also change "CPU Frequency" to "80MHz (WiFi), to reduce power consumption
 6. Plug in your Feather using the USB-C connector, and set the Port to match the one assigned by your OS (e.g. `COM5` on Windows, `/dev/ttyACM0` on Linux)
 
 To load the firmware on the device:
 
 1. Clone this repository somewhere sensible (Arduino projects are typically located in the `$HOME/Documents/Arduino` folder)
 2. While holding the BOOT/DFU button, press and release the Reset button, putting the Feather into [ROM bootloader mode](https://learn.adafruit.com/adafruit-esp32-s2-feather/factory-reset)
-3. In Arduino (or VS Code using the [Arduino extension](https://github.com/microsoft/vscode-arduino)), open the arduino-co2-monitor.ino file and click Upload (or run the Arduino: Upload task in VS Code)
-4. Once finished, you may have to manually press the Reset button again to start the firmware
+3. If loading firmware for the first time, initialize and calibrate the sensor using the [adanet-init](adanet-init) program
+4. In Arduino (or VS Code using the [Arduino extension](https://github.com/microsoft/vscode-arduino)), open the arduino-co2-monitor.ino file and click Upload (or run the Arduino: Upload task in VS Code)
+5. Once finished, you may have to manually press the Reset button again to start the firmware
 
 And that's it! The firmware does the following once every 180 seconds (the [fastest update rate](https://learn.adafruit.com/adafruit-2-13-eink-display-breakouts-and-featherwings/usage-expectations) supported by the E Ink screen):
 
