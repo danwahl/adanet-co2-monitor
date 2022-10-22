@@ -281,7 +281,7 @@ void setup()
   if (error == ERROR_NONE)
   {
     float disp_temp = (temp_units == 'C') ? temperature : (temperature / 5.f * 9.f + 32.f);
-    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "% 3.1f%c%c", disp_temp, temp_units, 0xF7);
+    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "% 3.1f%c%c", disp_temp, 0xF7, temp_units);
     printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%3.1f%%", humidity);
 
     const uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
