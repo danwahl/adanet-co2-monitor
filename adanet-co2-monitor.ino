@@ -64,6 +64,14 @@ typedef enum
   ERROR_BATT_SENSOR,
 } Error;
 
+typedef enum
+{
+  CELSIUS,
+  FARENHEIT,
+} TemperatureUnits;
+
+static TemperatureUnits tempU = FARENHEIT;
+
 void checkSCD4xError(const uint16_t scd4xError)
 {
   if (scd4xError)
@@ -270,7 +278,15 @@ void setup()
   const int16_t footerY = display.height() - 1 - FOOTER_SIZE * CHAR_HEIGHT;
   if (error == ERROR_NONE)
   {
-    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "% 3.1f%cC", temperature, 0xF7);
+    if(tempU == CELSIUS)
+    {
+      printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "% 3.1f%cC", temperature, 0xF7);
+    }
+    else
+    {
+      printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "% 3.1f%cF", temperature / 5.f * 9.f + 32.f, 0xF7);
+    }
+
     printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%3.1f%%", humidity);
 
     const uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
