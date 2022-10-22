@@ -86,7 +86,7 @@ Once complete, your final assembly should look like this:
 
 The Arduino firmware (adanet-co2-monitor.ino) has been tested using the following software (and corresponding versions):
 
-- Arduino IDE (v1.8.19)
+- Arduino IDE (v1.8.19 or v2.0.0)
 - Adafruit DPS310 (v1.1.1)
 - Adafruit EPD (v4.5.0)
 - Adafruit LC709203F (v1.3.1)
