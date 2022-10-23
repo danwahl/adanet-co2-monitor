@@ -92,7 +92,6 @@ The Arduino firmware (adanet-co2-monitor.ino) has been tested using the followin
 - Adafruit LC709203F (v1.3.1)
 - ESP32 Arduino (v2.0.5)
 - Sensirion I2C SCD4x (v0.3.1)
-- Adafruit NeoPixel (v1.10.6)
 
 To prepare your development environment:
 
