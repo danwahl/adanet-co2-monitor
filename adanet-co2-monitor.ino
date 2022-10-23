@@ -6,9 +6,10 @@
 #include <Adafruit_DPS310.h>
 #include <Adafruit_LC709203F.h>
 #include <Adafruit_ThinkInk.h>
+#include <Preferences.h>
 #include <SensirionI2CScd4x.h>
 #include <Wire.h>
-#include <Preferences.h>
+
 
 static constexpr uint32_t VERSION_MAJOR = 0;
 static constexpr uint32_t VERSION_MINOR = 1;
@@ -66,7 +67,7 @@ typedef enum
   ERROR_BATT_SENSOR,
 } Error;
 
-static int8_t temp_units = 'F';
+static int8_t tempUnits;
 
 void checkSCD4xError(const uint16_t scd4xError)
 {
@@ -129,7 +130,7 @@ void setup()
 #endif
 
   // get temperature display units preference from flash
-  temp_units = pref.getChar("temp_units", 'F');
+  tempUnits = pref.getChar("temp_units", 'C');
   pref.end();
 
   // setup dps310 pressure sensor
@@ -280,9 +281,9 @@ void setup()
   const int16_t footerY = display.height() - 1 - FOOTER_SIZE * CHAR_HEIGHT;
   if (error == ERROR_NONE)
   {
-    float disp_temp = (temp_units == 'C') ? temperature : (temperature / 5.f * 9.f + 32.f);
-    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "% 3.1f%c%c", disp_temp, 0xF7, temp_units);
-    printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%3.1f%%", humidity);
+    const float dispTemp = (tempUnits == 'C') ? temperature : (temperature / 5.f * 9.f + 32.f);
+    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "%5.1f%c%c", dispTemp, 0xF7, tempUnits);
+    printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%4.1f%%", humidity);
 
     const uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
     printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);

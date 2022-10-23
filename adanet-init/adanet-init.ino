@@ -5,8 +5,9 @@
 #include <Adafruit_LC709203F.h>
 #include <Adafruit_ThinkInk.h>
 #include <Wire.h>
-#include <SensirionI2CScd4x.h>
 #include <Preferences.h>
+#include <SensirionI2CScd4x.h>
+
 
 static constexpr int16_t EPD_DC = 10;    // can be any pin, but required!
 static constexpr int16_t EPD_CS = 9;     // can be any pin, but required!
