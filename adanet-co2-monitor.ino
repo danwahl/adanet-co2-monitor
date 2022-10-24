@@ -75,7 +75,9 @@ static int8_t tempUnits;
 // number of updates per day 60s * 60min * 24hrs = 86400
 static constexpr int32_t UPDATES_PER_DAY = (86400 / DISPLAY_WAIT);
 static constexpr int32_t UPDATES_PER_WEEK = UPDATES_PER_DAY * 1;
-RTC_DATA_ATTR CircularBuffer<uint16_t, UPDATES_PER_WEEK> co2HistoryFifo;
+RTC_DATA_ATTR static uint16_t co2HistoryFifo[UPDATES_PER_WEEK];
+RTC_DATA_ATTR static uint16_t co2HistoryHead = 0;
+RTC_DATA_ATTR static uint16_t co2HistorySize = 0;
 
 void checkSCD4xError(const uint16_t scd4xError)
 {
@@ -112,32 +114,47 @@ void printfAligned(const uint8_t size, const Alignment alignment, const int16_t 
   display.print(buffer);
 }
 
-void computeCo2Max(uint16_t* const dayMax, uint16_t* const weekMax)
+void co2HistoryAdd(const uint16_t co2)
+{
+  co2HistoryFifo[co2HistoryHead] = co2;
+  ++co2HistoryHead %= UPDATES_PER_WEEK;
+
+  if (++co2HistorySize > UPDATES_PER_WEEK) 
+  {
+    co2HistorySize = UPDATES_PER_WEEK;
+  }
+}
+
+uint16_t co2HistoryRead(const uint16_t index) 
+{
+  int16_t idx = co2HistoryHead - 1 - index;
+
+  if (idx < 0) 
+  {
+    idx += UPDATES_PER_WEEK;
+  }
+
+  return co2HistoryFifo[idx];
+}
+
+void computeCo2Max(uint16_t *const dayMax, uint16_t *const weekMax)
 {
   *dayMax = 0;
   *weekMax = 0;
 
-  using index_t = decltype(co2HistoryFifo)::index_t;
-  for (index_t i = 0; i < co2HistoryFifo.size(); i++) {
-      if(i < UPDATES_PER_DAY)
-      {
-        if(co2HistoryFifo[i] > *dayMax)
-        {
-          *dayMax = co2HistoryFifo[i];
-        }
-      }
-      else
-      {
-        if(co2HistoryFifo[i] > *weekMax)
-        {
-          *weekMax = co2HistoryFifo[i];
-        }
-      }
-  }
-
-  if(co2HistoryFifo.size() < UPDATES_PER_WEEK)
+  for (uint16_t i = 0; i < co2HistorySize; i++) 
   {
-    *weekMax = *dayMax;
+    if (i < UPDATES_PER_DAY)
+    {
+      if (co2HistoryRead(i) > *dayMax) 
+      {
+        *dayMax = co2HistoryRead(i);
+      }
+    }
+    if (co2HistoryRead(i) > *weekMax) 
+    {
+      *weekMax = co2HistoryRead(i);
+    }
   }
 }
 
@@ -306,7 +323,7 @@ void setup()
 
   if(error == ERROR_NONE)
   {
-    co2HistoryFifo.unshift(co2);
+    co2HistoryAdd(co2);
     computeCo2Max(&co2DayMax, &co2WeekMax);
   }
 
