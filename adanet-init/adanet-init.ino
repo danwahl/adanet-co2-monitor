@@ -158,8 +158,10 @@ void setup()
 
   if (Serial.read() != 'c')
   {
-    Serial.println("Done.");
+    // wait a bit to make sure preferences have a chance to get commited to flash before exiting
     delay(1000);
+    Serial.println("Done.");
+    
     return;
   }
 
