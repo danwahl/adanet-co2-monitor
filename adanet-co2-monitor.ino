@@ -7,6 +7,7 @@
 #include <Adafruit_LC709203F.h>
 #include <Adafruit_ThinkInk.h>
 #include <Preferences.h>
+#include <CircularBuffer.h>
 #include <SensirionI2CScd4x.h>
 #include <Wire.h>
 
@@ -28,6 +29,9 @@ static constexpr int16_t HEADER_SIZE = 3; // text size of header
 static constexpr int16_t BODY_SIZE = 6;   // text size of body
 static constexpr int16_t FOOTER_SIZE = 3; // text size of footer
 static constexpr int16_t ERROR_SIZE = 3;  // text size of error
+static constexpr int16_t MAXVAL_SIZE = 2; // text size of max value
+static constexpr int16_t MAXLBL_SIZE = 1; // text size of max value
+
 
 static constexpr uint32_t DISPLAY_WAIT = 180; // wait between display updates in seconds
 
@@ -68,6 +72,10 @@ typedef enum
 } Error;
 
 static int8_t tempUnits;
+// number of updates per day 60s * 60min * 24hrs = 86400
+static constexpr int32_t UPDATES_PER_DAY = (86400 / DISPLAY_WAIT);
+static constexpr int32_t UPDATES_PER_WEEK = UPDATES_PER_DAY * 1;
+RTC_DATA_ATTR CircularBuffer<uint16_t, UPDATES_PER_WEEK> co2HistoryFifo;
 
 void checkSCD4xError(const uint16_t scd4xError)
 {
@@ -102,6 +110,35 @@ void printfAligned(const uint8_t size, const Alignment alignment, const int16_t 
     break;
   }
   display.print(buffer);
+}
+
+void computeCo2Max(uint16_t* const dayMax, uint16_t* const weekMax)
+{
+  *dayMax = 0;
+  *weekMax = 0;
+
+  using index_t = decltype(co2HistoryFifo)::index_t;
+  for (index_t i = 0; i < co2HistoryFifo.size(); i++) {
+      if(i < UPDATES_PER_DAY)
+      {
+        if(co2HistoryFifo[i] > *dayMax)
+        {
+          *dayMax = co2HistoryFifo[i];
+        }
+      }
+      else
+      {
+        if(co2HistoryFifo[i] > *weekMax)
+        {
+          *weekMax = co2HistoryFifo[i];
+        }
+      }
+  }
+
+  if(co2HistoryFifo.size() < UPDATES_PER_WEEK)
+  {
+    *weekMax = *dayMax;
+  }
 }
 
 void setup()
@@ -263,6 +300,16 @@ void setup()
   }
   Serial.println();
 #else
+  // co2 history 
+  uint16_t co2DayMax = 0;
+  uint16_t co2WeekMax = 0;
+
+  if(error == ERROR_NONE)
+  {
+    co2HistoryFifo.unshift(co2);
+    computeCo2Max(&co2DayMax, &co2WeekMax);
+  }
+
   // setup display
   display.begin(THINKINK_TRICOLOR);
 
@@ -278,6 +325,8 @@ void setup()
 
   const int16_t headerY = 0;
   const int16_t bodyY = (display.height() - BODY_SIZE * CHAR_HEIGHT) / 2;
+  const int16_t maxValueY = display.height() / 2 - MAXVAL_SIZE * CHAR_HEIGHT;
+  const int16_t maxLabelY = display.height() / 2;
   const int16_t footerY = display.height() - 1 - FOOTER_SIZE * CHAR_HEIGHT;
   if (error == ERROR_NONE)
   {
@@ -285,8 +334,17 @@ void setup()
     printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "%5.1f%c%c", dispTemp, 0xF7, tempUnits);
     printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%5.1f%%", humidity);
 
-    const uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
+    uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
     printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);
+
+    co2Color = co2DayMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
+    printfAligned(MAXVAL_SIZE, ALIGN_LEFT, maxValueY, co2Color, "%u", co2DayMax);
+    
+    co2Color = co2WeekMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
+    printfAligned(MAXVAL_SIZE, ALIGN_RIGHT, maxValueY, co2Color, "%u", co2WeekMax);
+
+    printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY, EPD_BLACK, "%s", "max/day");
+    printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY, EPD_BLACK, "%s", "max/week");
 
     const uint16_t battColor = batt < BATT_LIMIT ? EPD_RED : EPD_BLACK;
     const int16_t x0 = FOOTER_SIZE * CHAR_WIDTH / 2;
