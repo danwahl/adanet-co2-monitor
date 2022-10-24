@@ -3,7 +3,6 @@
 
 #include <Adafruit_DPS310.h>
 #include <Adafruit_LC709203F.h>
-#include <Adafruit_NeoPixel.h>
 #include <Adafruit_ThinkInk.h>
 #include <Wire.h>
 #include <SensirionI2CScd4x.h>
