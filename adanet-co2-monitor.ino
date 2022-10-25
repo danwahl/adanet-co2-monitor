@@ -7,7 +7,6 @@
 #include <Adafruit_LC709203F.h>
 #include <Adafruit_ThinkInk.h>
 #include <Preferences.h>
-#include <CircularBuffer.h>
 #include <SensirionI2CScd4x.h>
 #include <Wire.h>
 
