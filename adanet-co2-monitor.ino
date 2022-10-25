@@ -54,6 +54,8 @@ static Adafruit_DPS310 dps;
 static uint32_t error;
 static char message[MESSAGE_SIZE];
 static Preferences pref;
+static constexpr uint8_t CO2_VAL_STRING_LEN = 20;
+static char formattedCo2Str[CO2_VAL_STRING_LEN];
 
 typedef enum
 {
@@ -154,6 +156,16 @@ void computeCo2Max(uint16_t *const dayMax, uint16_t *const weekMax)
     {
       *weekMax = co2HistoryRead(i);
     }
+  }
+}
+
+void formatCo2(char *str, uint16_t val){
+  if(val < 9999)
+  {
+    snprintf(str, CO2_VAL_STRING_LEN, "%u", val);
+  }
+  else{
+    snprintf(str, CO2_VAL_STRING_LEN, "%.0fK", static_cast<float>(val) / 1000.f);
   }
 }
 
@@ -351,13 +363,16 @@ void setup()
     printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%5.1f%%", humidity);
 
     uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
-    printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);
+    formatCo2(formattedCo2Str, co2);
+    printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%s", formattedCo2Str);
 
     co2Color = co2DayMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
-    printfAligned(MAXVAL_SIZE, ALIGN_LEFT, maxValueY, co2Color, "%u", co2DayMax);
+    formatCo2(formattedCo2Str,co2DayMax);
+    printfAligned(MAXVAL_SIZE, ALIGN_LEFT, maxValueY, co2Color, "%s", formattedCo2Str);
     
     co2Color = co2WeekMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
-    printfAligned(MAXVAL_SIZE, ALIGN_RIGHT, maxValueY, co2Color, "%u", co2WeekMax);
+    formatCo2(formattedCo2Str, co2WeekMax);
+    printfAligned(MAXVAL_SIZE, ALIGN_RIGHT, maxValueY, co2Color, "%s", formattedCo2Str);
 
     printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY, EPD_BLACK, "%s", "max/day");
     printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY, EPD_BLACK, "%s", "max/week");
