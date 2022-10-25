@@ -5,7 +5,9 @@
 #include <Adafruit_LC709203F.h>
 #include <Adafruit_ThinkInk.h>
 #include <Wire.h>
+#include <Preferences.h>
 #include <SensirionI2CScd4x.h>
+
 
 static constexpr int16_t EPD_DC = 10;    // can be any pin, but required!
 static constexpr int16_t EPD_CS = 9;     // can be any pin, but required!
@@ -29,6 +31,8 @@ static SensirionI2CScd4x scd4x;
 static Adafruit_LC709203F lc;
 
 static Adafruit_DPS310 dps;
+
+static Preferences pref;
 
 bool checkSCD4xError(const uint16_t scd4xError)
 {
@@ -129,6 +133,38 @@ void setup()
       static_cast<uint64_t>(serial2);
   Serial.print("SCD4x Serial = ");
   Serial.println(scd4xSerial, HEX);
+
+  // configure temperature units for display
+  pref.begin("adanet-co2", false);
+  Serial.println("Select temperature display units [c]elsius [f]arenheit? [c]");
+  while (!Serial.available())
+    delay(10);
+
+  if (Serial.read() == 'f')
+  {
+    pref.putChar("temp_units", 'F');
+    Serial.println("Units set to Farenheit");
+  }
+  else
+  {
+    pref.putChar("temp_units", 'C');
+    Serial.println("Units set to Celsius");
+  }
+  pref.end();
+
+  Serial.println("Proceed to [c]alibration or [e]xit? [e]");
+  while (!Serial.available())
+    delay(10);
+
+  if (Serial.read() != 'c')
+  {
+    // wait a bit to make sure preferences have a chance to get commited to flash before exiting
+    delay(1000);
+    Serial.println("Done.");
+    
+    return;
+  }
+
 
   // get serial input before starting calibration
   Serial.println("Perform factory reset? [n]");

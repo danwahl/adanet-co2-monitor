@@ -6,8 +6,10 @@
 #include <Adafruit_DPS310.h>
 #include <Adafruit_LC709203F.h>
 #include <Adafruit_ThinkInk.h>
+#include <Preferences.h>
 #include <SensirionI2CScd4x.h>
 #include <Wire.h>
+
 
 static constexpr uint32_t VERSION_MAJOR = 0;
 static constexpr uint32_t VERSION_MINOR = 1;
@@ -48,6 +50,7 @@ static Adafruit_DPS310 dps;
 
 static uint32_t error;
 static char message[MESSAGE_SIZE];
+static Preferences pref;
 
 typedef enum
 {
@@ -63,6 +66,8 @@ typedef enum
   ERROR_PRESSURE_SENSOR,
   ERROR_BATT_SENSOR,
 } Error;
+
+static int8_t tempUnits;
 
 void checkSCD4xError(const uint16_t scd4xError)
 {
@@ -107,6 +112,8 @@ void setup()
   // turn off neopixel power
   digitalWrite(NEOPIXEL_POWER, !NEOPIXEL_POWER_ON);
 
+  pref.begin("adanet-co2", true);
+
 #ifdef DEBUG
   Serial.begin(115200);
   while (!Serial)
@@ -121,6 +128,10 @@ void setup()
   // TODO(drw): is this necessary?
   delay(1000);
 #endif
+
+  // get temperature display units preference from flash
+  tempUnits = pref.getChar("temp_units", 'C');
+  pref.end();
 
   // setup dps310 pressure sensor
   if (!dps.begin_I2C())
@@ -270,8 +281,9 @@ void setup()
   const int16_t footerY = display.height() - 1 - FOOTER_SIZE * CHAR_HEIGHT;
   if (error == ERROR_NONE)
   {
-    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "% 3.1f%cC", temperature, 0xF7);
-    printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%3.1f%%", humidity);
+    const float dispTemp = (tempUnits == 'C') ? temperature : (temperature / 5.f * 9.f + 32.f);
+    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "%5.1f%c%c", dispTemp, 0xF7, tempUnits);
+    printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%5.1f%%", humidity);
 
     const uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
     printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);
