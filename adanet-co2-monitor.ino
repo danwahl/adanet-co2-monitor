@@ -159,13 +159,14 @@ void computeCo2Max(uint16_t *const dayMax, uint16_t *const weekMax)
   }
 }
 
-void formatCo2(char *str, uint16_t val){
-  if(val < 9999)
+void formatCo2(const uint16_t primaryCo2Val, const uint16_t secondaryCo2Val, char *str){
+  if((primaryCo2Val > 9999 && secondaryCo2Val > 999) || (primaryCo2Val > 999 && secondaryCo2Val > 9999)) 
   {
-    snprintf(str, CO2_VAL_STRING_LEN, "%u", val);
+    snprintf(str, CO2_VAL_STRING_LEN, "%.0fK", static_cast<float>(secondaryCo2Val) / 1000.f);
   }
-  else{
-    snprintf(str, CO2_VAL_STRING_LEN, "%.0fK", static_cast<float>(val) / 1000.f);
+  else
+  {
+    snprintf(str, CO2_VAL_STRING_LEN, "%u", secondaryCo2Val);
   }
 }
 
@@ -363,19 +364,20 @@ void setup()
     printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%5.1f%%", humidity);
 
     uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
-    formatCo2(formattedCo2Str, co2);
-    printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%s", formattedCo2Str);
+    printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);
 
     co2Color = co2DayMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
-    formatCo2(formattedCo2Str,co2DayMax);
+    formatCo2(co2, co2DayMax, formattedCo2Str);
     printfAligned(MAXVAL_SIZE, ALIGN_LEFT, maxValueY, co2Color, "%s", formattedCo2Str);
-    
+  
     co2Color = co2WeekMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
-    formatCo2(formattedCo2Str, co2WeekMax);
+    formatCo2(co2, co2WeekMax, formattedCo2Str);
     printfAligned(MAXVAL_SIZE, ALIGN_RIGHT, maxValueY, co2Color, "%s", formattedCo2Str);
 
-    printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY, EPD_BLACK, "%s", "max/day");
-    printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY, EPD_BLACK, "%s", "max/week");
+    printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY, EPD_BLACK, "%s", "max/");
+    printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY + MAXLBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%s", "day");
+    printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY, EPD_BLACK, "%s", "max/");
+    printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY + MAXLBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%s", "week");
 
     const uint16_t battColor = batt < BATT_LIMIT ? EPD_RED : EPD_BLACK;
     const int16_t x0 = FOOTER_SIZE * CHAR_WIDTH / 2;
