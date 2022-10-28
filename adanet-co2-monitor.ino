@@ -75,7 +75,7 @@ typedef enum
 static int8_t tempUnits;
 // number of updates per day 60s * 60min * 24hrs = 86400
 static constexpr int32_t UPDATES_PER_DAY = (86400 / DISPLAY_WAIT);
-static constexpr int32_t UPDATES_PER_WEEK = UPDATES_PER_DAY * 1;
+static constexpr int32_t UPDATES_PER_WEEK = UPDATES_PER_DAY * 7;
 RTC_DATA_ATTR static uint16_t co2HistoryFifo[UPDATES_PER_WEEK];
 RTC_DATA_ATTR static uint16_t co2HistoryHead = 0;
 RTC_DATA_ATTR static uint16_t co2HistorySize = 0;
