@@ -79,9 +79,8 @@ typedef enum
 
 static int8_t tempUnits;
 
-RTC_DATA_ATTR static uint16_t co2HistoryFifo[UPDATES_PER_WEEK];
+RTC_DATA_ATTR static uint16_t co2HistoryFifo[UPDATES_PER_WEEK] = {0};
 RTC_DATA_ATTR static uint16_t co2HistoryHead = 0;
-RTC_DATA_ATTR static uint16_t co2HistorySize = 0;
 
 void checkSCD4xError(const uint16_t scd4xError)
 {
@@ -125,11 +124,6 @@ void co2HistoryAdd(const uint16_t co2)
 {
   co2HistoryFifo[co2HistoryHead] = co2;
   ++co2HistoryHead %= UPDATES_PER_WEEK;
-
-  if (++co2HistorySize > UPDATES_PER_WEEK) 
-  {
-    co2HistorySize = UPDATES_PER_WEEK;
-  }
 }
 
 uint16_t co2HistoryRead(const uint16_t index) 
@@ -153,7 +147,7 @@ void computeCo2Max(uint16_t& dayMax, uint16_t& weekMax)
   dayMax = 0;
   weekMax = 0;
 
-  for (uint16_t i = 0; i < co2HistorySize; i++) 
+  for (uint16_t i = 0; i < UPDATES_PER_WEEK; i++) 
   {
     if (i < UPDATES_PER_DAY)
     {
