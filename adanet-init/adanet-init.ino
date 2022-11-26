@@ -8,7 +8,6 @@
 #include <Preferences.h>
 #include <SensirionI2CScd4x.h>
 
-
 static constexpr int16_t EPD_DC = 10;    // can be any pin, but required!
 static constexpr int16_t EPD_CS = 9;     // can be any pin, but required!
 static constexpr int16_t SRAM_CS = 6;    // can set to -1 to not use a pin (uses a lot of RAM!)
@@ -161,10 +160,9 @@ void setup()
     // wait a bit to make sure preferences have a chance to get commited to flash before exiting
     delay(1000);
     Serial.println("Done.");
-    
+
     return;
   }
-
 
   // get serial input before starting calibration
   Serial.println("Perform factory reset? [n]");
@@ -280,5 +278,6 @@ void setup()
 
 void loop()
 {
+  // shouldn't reach here during normal operation
   delay(10);
 }

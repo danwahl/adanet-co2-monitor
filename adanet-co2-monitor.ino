@@ -10,9 +10,8 @@
 #include <SensirionI2CScd4x.h>
 #include <Wire.h>
 
-
 static constexpr uint32_t VERSION_MAJOR = 0;
-static constexpr uint32_t VERSION_MINOR = 1;
+static constexpr uint32_t VERSION_MINOR = 2;
 static constexpr uint32_t VERSION_PATCH = 0;
 
 static constexpr int16_t EPD_DC = 10;    // can be any pin, but required!
@@ -31,7 +30,6 @@ static constexpr int16_t ERROR_SIZE = 3;  // text size of error
 static constexpr int16_t MAXVAL_SIZE = 2; // text size of max value
 static constexpr int16_t MAXLBL_SIZE = 1; // text size of max label
 
-
 static constexpr uint32_t DISPLAY_WAIT = 180; // wait between display updates in seconds
 
 static constexpr uint32_t NUM_MEASUREMENTS = 2; // number of measurements to take
@@ -39,7 +37,8 @@ static constexpr uint32_t MEASUREMENT_WAIT = 5; // wait between checking measure
 static constexpr uint16_t CO2_LIMIT = 800;      // CDC CO2 ppm limit
 
 static constexpr int16_t BATT_WIDTH = 3 * FOOTER_SIZE * CHAR_WIDTH;
-static constexpr float BATT_LIMIT = 15.0f;
+static constexpr float BATT_WARN_LIMIT = 15.0f;
+static constexpr float BATT_ERROR_LIMIT = 8.0f; // default LC709203F alarm level
 
 static constexpr size_t MESSAGE_SIZE = 256;
 
@@ -59,8 +58,8 @@ static Adafruit_DPS310 dps;
 
 static uint32_t error;
 static char message[MESSAGE_SIZE];
+
 static Preferences pref;
-static char formattedCo2Str[CO2_VAL_STRING_LEN];
 
 typedef enum
 {
@@ -75,12 +74,13 @@ typedef enum
   ERROR_CO2_SENSOR,
   ERROR_PRESSURE_SENSOR,
   ERROR_BATT_SENSOR,
+  ERROR_LOW_BATT,
 } Error;
-
-static int8_t tempUnits;
 
 RTC_DATA_ATTR static uint16_t co2HistoryFifo[UPDATES_PER_WEEK] = {0};
 RTC_DATA_ATTR static uint16_t co2HistoryHead = 0;
+
+RTC_DATA_ATTR static bool errorPrev = ERROR_NONE;
 
 void checkSCD4xError(const uint16_t scd4xError)
 {
@@ -126,7 +126,7 @@ void co2HistoryAdd(const uint16_t co2)
   ++co2HistoryHead %= UPDATES_PER_WEEK;
 }
 
-uint16_t co2HistoryRead(const uint16_t index) 
+uint16_t co2HistoryRead(const uint16_t index)
 {
   // following a call to co2HistoryAdd, co2HistoryHead points to the next available slot
   // therefore the latest/most recently updated value is located at (co2HistoryHead - 1)
@@ -134,7 +134,7 @@ uint16_t co2HistoryRead(const uint16_t index)
   int16_t idx = co2HistoryHead - 1 - index;
 
   // handle the wraparound of the circular buffer
-  while (idx < 0) 
+  while (idx < 0)
   {
     idx += UPDATES_PER_WEEK;
   }
@@ -142,21 +142,21 @@ uint16_t co2HistoryRead(const uint16_t index)
   return co2HistoryFifo[idx];
 }
 
-void computeCo2Max(uint16_t& dayMax, uint16_t& weekMax)
+void computeCo2Max(uint16_t &dayMax, uint16_t &weekMax)
 {
   dayMax = 0;
   weekMax = 0;
 
-  for (uint16_t i = 0; i < UPDATES_PER_WEEK; i++) 
+  for (uint16_t i = 0; i < UPDATES_PER_WEEK; i++)
   {
     if (i < UPDATES_PER_DAY)
     {
-      if (co2HistoryRead(i) > dayMax) 
+      if (co2HistoryRead(i) > dayMax)
       {
         dayMax = co2HistoryRead(i);
       }
     }
-    if (co2HistoryRead(i) > weekMax) 
+    if (co2HistoryRead(i) > weekMax)
     {
       weekMax = co2HistoryRead(i);
     }
@@ -165,7 +165,7 @@ void computeCo2Max(uint16_t& dayMax, uint16_t& weekMax)
 
 void formatCo2(const uint16_t primaryCo2Val, const uint16_t secondaryCo2Val, char *str)
 {
-  if ((primaryCo2Val > 9999 && secondaryCo2Val > 999) || (primaryCo2Val > 999 && secondaryCo2Val > 9999)) 
+  if ((primaryCo2Val > 9999 && secondaryCo2Val > 999) || (primaryCo2Val > 999 && secondaryCo2Val > 9999))
   {
     snprintf(str, CO2_VAL_STRING_LEN, "%.0fK", static_cast<float>(secondaryCo2Val) / 1000.f);
   }
@@ -183,8 +183,6 @@ void setup()
   // turn off neopixel power
   digitalWrite(NEOPIXEL_POWER, !NEOPIXEL_POWER_ON);
 
-  pref.begin("adanet-co2", true);
-
 #ifdef DEBUG
   Serial.begin(115200);
   while (!Serial)
@@ -200,12 +198,57 @@ void setup()
   delay(1000);
 #endif
 
+  error = ERROR_NONE;
+
+  pref.begin("adanet-co2", true);
   // get temperature display units preference from flash
-  tempUnits = pref.getChar("temp_units", 'C');
+  const int8_t tempUnits = pref.getChar("temp_units", 'C');
   pref.end();
 
+  error = ERROR_NONE;
+
+  // setup lc709203f battery fuel gauge
+  if (!lc.begin())
+  {
+    error = ERROR_BATT_SENSOR << 16;
+    snprintf(message, MESSAGE_SIZE, "Couldn't find LC709203F, make sure a battery is plugged in");
+  }
+
+  float batt = 0.0f;
+  if (error == ERROR_NONE)
+  {
+#ifdef DEBUG
+    Serial.println(F("Found LC709203F"));
+    Serial.print("Version: 0x");
+    Serial.println(lc.getICversion(), HEX);
+#endif
+
+    lc.setThermistorB(3950);
+#ifdef DEBUG
+    Serial.print("Thermistor B = ");
+    Serial.println(lc.getThermistorB());
+#endif
+
+    lc.setPackSize(LC709203F_APA_2000MAH);
+    lc.setAlarmVoltage(3.8);
+
+    batt = lc.cellPercent();
+    lc.setPowerMode(LC709203F_POWER_SLEEP);
+
+#ifdef DEBUG
+    Serial.print("Battery = ");
+    Serial.println(batt);
+#endif
+
+    if (batt < BATT_ERROR_LIMIT)
+    {
+      error = ERROR_LOW_BATT << 16;
+      snprintf(message, MESSAGE_SIZE, "Battery voltage too low, please charge");
+    }
+  }
+
   // setup dps310 pressure sensor
-  if (!dps.begin_I2C())
+  if ((error == ERROR_NONE) && !dps.begin_I2C())
   {
     error = ERROR_PRESSURE_SENSOR << 16;
     snprintf(message, MESSAGE_SIZE, "Failed to find DPS");
@@ -287,40 +330,6 @@ void setup()
     snprintf(message, MESSAGE_SIZE, "Invalid sample detected");
   }
 
-  // setup lc709203f battery fuel gauge
-  if ((error == ERROR_NONE) && !lc.begin())
-  {
-    error = ERROR_BATT_SENSOR << 16;
-    snprintf(message, MESSAGE_SIZE, "Couldn't find LC709203F, make sure a battery is plugged in");
-  }
-
-  float batt = 0.0f;
-  if (error == ERROR_NONE)
-  {
-#ifdef DEBUG
-    Serial.println(F("Found LC709203F"));
-    Serial.print("Version: 0x");
-    Serial.println(lc.getICversion(), HEX);
-#endif
-
-    lc.setThermistorB(3950);
-#ifdef DEBUG
-    Serial.print("Thermistor B = ");
-    Serial.println(lc.getThermistorB());
-#endif
-
-    lc.setPackSize(LC709203F_APA_2000MAH);
-    lc.setAlarmVoltage(3.8);
-
-    batt = lc.cellPercent();
-    lc.setPowerMode(LC709203F_POWER_SLEEP);
-
-#ifdef DEBUG
-    Serial.print("Battery = ");
-    Serial.println(batt);
-#endif
-  }
-
   // turn off i2c power
   digitalWrite(I2C_POWER, LOW);
 
@@ -334,87 +343,96 @@ void setup()
   }
   Serial.println();
 #else
-  // co2 history 
+  // add co2 to history regardless of error in order to properly track time
+  co2HistoryAdd(co2);
+
+  // co2 history
   uint16_t co2DayMax = 0;
   uint16_t co2WeekMax = 0;
-
   if (error == ERROR_NONE)
   {
-    co2HistoryAdd(co2);
     computeCo2Max(co2DayMax, co2WeekMax);
   }
 
-  // setup display
-  display.begin(THINKINK_TRICOLOR);
-
-  // enum | orientation | USB
-  // -----|-------------|-------
-  //   0  | landscape   | right
-  //   1  | portrait    | top
-  //   2  | landscape   | left
-  //   3  | portrait    | bottom
-  display.setRotation(2);
-
-  display.clearBuffer();
-
-  const int16_t headerY = 0;
-  const int16_t bodyY = (display.height() - BODY_SIZE * CHAR_HEIGHT) / 2;
-  const int16_t maxValueY = display.height() / 2 - MAXVAL_SIZE * CHAR_HEIGHT;
-  const int16_t maxLabelY = display.height() / 2;
-  const int16_t footerY = display.height() - 1 - FOOTER_SIZE * CHAR_HEIGHT;
-  if (error == ERROR_NONE)
+  // only update display if there is no error, or the error is different from previous
+  if ((error == ERROR_NONE) || (error != errorPrev))
   {
-    const float dispTemp = (tempUnits == 'C') ? temperature : (temperature / 5.f * 9.f + 32.f);
-    printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "%5.1f%c%c", dispTemp, 0xF7, tempUnits);
-    printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%5.1f%%", humidity);
+    // setup display
+    display.begin(THINKINK_TRICOLOR);
 
-    uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
-    printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);
+    // enum | orientation | USB
+    // -----|-------------|-------
+    //   0  | landscape   | right
+    //   1  | portrait    | top
+    //   2  | landscape   | left
+    //   3  | portrait    | bottom
+    display.setRotation(2);
 
-    co2Color = co2DayMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
-    formatCo2(co2, co2DayMax, formattedCo2Str);
-    printfAligned(MAXVAL_SIZE, ALIGN_LEFT, maxValueY, co2Color, "%s", formattedCo2Str);
-  
-    co2Color = co2WeekMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
-    formatCo2(co2, co2WeekMax, formattedCo2Str);
-    printfAligned(MAXVAL_SIZE, ALIGN_RIGHT, maxValueY, co2Color, "%s", formattedCo2Str);
+    display.clearBuffer();
 
-    printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY, EPD_BLACK, "%s", "max/");
-    printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY + MAXLBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%s", "day");
-    printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY, EPD_BLACK, "%s", "max/");
-    printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY + MAXLBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%s", "week");
+    const int16_t headerY = 0;
+    const int16_t bodyY = (display.height() - BODY_SIZE * CHAR_HEIGHT) / 2;
+    const int16_t maxValueY = display.height() / 2 - MAXVAL_SIZE * CHAR_HEIGHT;
+    const int16_t maxLabelY = display.height() / 2;
+    const int16_t footerY = display.height() - 1 - FOOTER_SIZE * CHAR_HEIGHT;
+    if (error == ERROR_NONE)
+    {
+      const float dispTemp = (tempUnits == 'C') ? temperature : (temperature / 5.f * 9.f + 32.f);
+      printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "%5.1f%c%c", dispTemp, 0xF7, tempUnits);
+      printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%5.1f%%", humidity);
 
-    const uint16_t battColor = batt < BATT_LIMIT ? EPD_RED : EPD_BLACK;
-    const int16_t x0 = FOOTER_SIZE * CHAR_WIDTH / 2;
-    const int16_t y0 = footerY;
-    const int16_t w = BATT_WIDTH;
-    const int16_t h = FOOTER_SIZE * CHAR_HEIGHT;
-    const int16_t x1 = x0 + w;
-    const int16_t y1 = y0 + h;
-    display.fillRect(x0, y0, static_cast<int16_t>(batt / 100.0f * static_cast<float>(w)), h, battColor);
-    display.drawRect(x0, y0, w, h, battColor);
-    display.fillRect(x1, y0 + h / 4, FOOTER_SIZE * CHAR_WIDTH / 4, h / 2, battColor);
-    printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "%u hPa", pressure);
+      uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
+      printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);
+
+      char formattedCo2Str[CO2_VAL_STRING_LEN];
+      formatCo2(co2, co2DayMax, formattedCo2Str);
+      co2Color = co2DayMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
+      printfAligned(MAXVAL_SIZE, ALIGN_LEFT, maxValueY, co2Color, "%s", formattedCo2Str);
+
+      formatCo2(co2, co2WeekMax, formattedCo2Str);
+      co2Color = co2WeekMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
+      printfAligned(MAXVAL_SIZE, ALIGN_RIGHT, maxValueY, co2Color, "%s", formattedCo2Str);
+
+      printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY, EPD_BLACK, "%s", "max/");
+      printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY + MAXLBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%s", "day");
+      printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY, EPD_BLACK, "%s", "max/");
+      printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY + MAXLBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%s", "week");
+
+      const uint16_t battColor = batt < BATT_WARN_LIMIT ? EPD_RED : EPD_BLACK;
+      const int16_t x0 = FOOTER_SIZE * CHAR_WIDTH / 2;
+      const int16_t y0 = footerY;
+      const int16_t w = BATT_WIDTH;
+      const int16_t h = FOOTER_SIZE * CHAR_HEIGHT;
+      const int16_t x1 = x0 + w;
+      const int16_t y1 = y0 + h;
+      display.fillRect(x0, y0, static_cast<int16_t>(batt / 100.0f * static_cast<float>(w)), h, battColor);
+      display.drawRect(x0, y0, w, h, battColor);
+      display.fillRect(x1, y0 + h / 4, FOOTER_SIZE * CHAR_WIDTH / 4, h / 2, battColor);
+      printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "%u hPa", pressure);
+    }
+    else
+    {
+      display.setTextSize(ERROR_SIZE);
+      display.setTextColor(EPD_BLACK);
+      display.setCursor(0, 0);
+      display.println(ESP.getEfuseMac(), HEX);
+      display.print("v");
+      display.print(VERSION_MAJOR);
+      display.print(".");
+      display.print(VERSION_MINOR);
+      display.print(".");
+      display.println(VERSION_PATCH);
+      display.setTextColor(EPD_RED);
+      display.print(error, HEX);
+      display.print(": ");
+      display.println(message);
+    }
+
+    display.display(true);
   }
-  else
-  {
-    display.setTextSize(ERROR_SIZE);
-    display.setTextColor(EPD_BLACK);
-    display.setCursor(0, 0);
-    display.println(ESP.getEfuseMac(), HEX);
-    display.print("v");
-    display.print(VERSION_MAJOR);
-    display.print(".");
-    display.print(VERSION_MINOR);
-    display.print(".");
-    display.println(VERSION_PATCH);
-    display.setTextColor(EPD_RED);
-    display.print(error, HEX);
-    display.print(": ");
-    display.println(message);
-  }
 
-  display.display(true);
+  // update previous error
+  errorPrev = error;
 
   esp_sleep_enable_timer_wakeup((DISPLAY_WAIT - measurements * MEASUREMENT_WAIT) * 1000000ull);
   esp_deep_sleep_start();
