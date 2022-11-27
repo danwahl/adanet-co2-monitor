@@ -271,13 +271,15 @@ void setup()
     Serial.print("Forced recalibration correction = ");
     Serial.println(static_cast<int16_t>(frcCorrection - 0x8000));
   }
-
-  // turn off i2c power
-  digitalWrite(I2C_POWER, LOW);
 }
 
 void loop()
 {
-  // shouldn't reach here during normal operation
-  delay(10);
+  // turn off i2c power
+  digitalWrite(I2C_POWER, LOW);
+
+  // deep sleep to avoid draining battery after initialization
+  Serial.println("Entering deep sleep");
+  Serial.flush();
+  esp_deep_sleep_start();
 }
