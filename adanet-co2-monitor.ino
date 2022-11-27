@@ -26,7 +26,7 @@ static constexpr int16_t CHAR_HEIGHT = 8; // height of a character in pixels
 static constexpr int16_t HEADER_SIZE = 3; // text size of header
 static constexpr int16_t BODY_SIZE = 6;   // text size of body
 static constexpr int16_t FOOTER_SIZE = 3; // text size of footer
-static constexpr int16_t ERROR_SIZE = 3;  // text size of error
+static constexpr int16_t ERROR_SIZE = 2;  // text size of error
 static constexpr int16_t MAXVAL_SIZE = 2; // text size of max value
 static constexpr int16_t MAXLBL_SIZE = 1; // text size of max label
 
@@ -38,7 +38,7 @@ static constexpr uint16_t CO2_LIMIT = 800;      // CDC CO2 ppm limit
 
 static constexpr int16_t BATT_WIDTH = 3 * FOOTER_SIZE * CHAR_WIDTH;
 static constexpr float BATT_WARN_LIMIT = 15.0f;
-static constexpr float BATT_ERROR_LIMIT = 8.0f; // default LC709203F alarm level
+static constexpr float BATT_ERROR_LIMIT = 5.0f;
 
 static constexpr size_t MESSAGE_SIZE = 256;
 
@@ -80,7 +80,7 @@ typedef enum
 RTC_DATA_ATTR static uint16_t co2HistoryFifo[UPDATES_PER_WEEK] = {0};
 RTC_DATA_ATTR static uint16_t co2HistoryHead = 0;
 
-RTC_DATA_ATTR static bool errorPrev = ERROR_NONE;
+RTC_DATA_ATTR static uint32_t errorPrev = ERROR_NONE;
 
 void checkSCD4xError(const uint16_t scd4xError)
 {
@@ -93,7 +93,7 @@ void checkSCD4xError(const uint16_t scd4xError)
 
 void printfAligned(const uint8_t size, const Alignment alignment, const int16_t y, const uint16_t color, const char *fmt, ...)
 {
-  char buffer[256];
+  char buffer[MESSAGE_SIZE];
   va_list args;
   va_start(args, fmt);
   vsnprintf(buffer, sizeof(buffer), fmt, args);
@@ -205,8 +205,6 @@ void setup()
   const int8_t tempUnits = pref.getChar("temp_units", 'C');
   pref.end();
 
-  error = ERROR_NONE;
-
   // setup lc709203f battery fuel gauge
   if (!lc.begin())
   {
@@ -219,18 +217,16 @@ void setup()
   {
 #ifdef DEBUG
     Serial.println(F("Found LC709203F"));
-    Serial.print("Version: 0x");
-    Serial.println(lc.getICversion(), HEX);
 #endif
 
-    lc.setThermistorB(3950);
+    // TODO(drw): set with DPS310 value? (default temperature in i2c mode is 25C)
+    lc.setTemperatureMode(LC709203F_TEMPERATURE_I2C);
 #ifdef DEBUG
-    Serial.print("Thermistor B = ");
-    Serial.println(lc.getThermistorB());
+    Serial.print("Cell Temperature = ");
+    Serial.println(lc.getCellTemperature());
 #endif
 
     lc.setPackSize(LC709203F_APA_2000MAH);
-    lc.setAlarmVoltage(3.8);
 
     batt = lc.cellPercent();
     lc.setPowerMode(LC709203F_POWER_SLEEP);
@@ -346,14 +342,6 @@ void setup()
   // add co2 to history regardless of error in order to properly track time
   co2HistoryAdd(co2);
 
-  // co2 history
-  uint16_t co2DayMax = 0;
-  uint16_t co2WeekMax = 0;
-  if (error == ERROR_NONE)
-  {
-    computeCo2Max(co2DayMax, co2WeekMax);
-  }
-
   // only update display if there is no error, or the error is different from previous
   if ((error == ERROR_NONE) || (error != errorPrev))
   {
@@ -384,6 +372,11 @@ void setup()
       uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
       printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);
 
+      // co2 history
+      uint16_t co2DayMax = 0;
+      uint16_t co2WeekMax = 0;
+      computeCo2Max(co2DayMax, co2WeekMax);
+
       char formattedCo2Str[CO2_VAL_STRING_LEN];
       formatCo2(co2, co2DayMax, formattedCo2Str);
       co2Color = co2DayMax >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
@@ -412,26 +405,16 @@ void setup()
     }
     else
     {
-      display.setTextSize(ERROR_SIZE);
-      display.setTextColor(EPD_BLACK);
-      display.setCursor(0, 0);
-      display.println(ESP.getEfuseMac(), HEX);
-      display.print("v");
-      display.print(VERSION_MAJOR);
-      display.print(".");
-      display.print(VERSION_MINOR);
-      display.print(".");
-      display.println(VERSION_PATCH);
-      display.setTextColor(EPD_RED);
-      display.print(error, HEX);
-      display.print(": ");
-      display.println(message);
+      printfAligned(ERROR_SIZE, ALIGN_LEFT, 0, EPD_BLACK, "%012llX", ESP.getEfuseMac());
+      printfAligned(ERROR_SIZE, ALIGN_RIGHT, 0, EPD_BLACK, "v%u.%u.%u", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
+      printfAligned(ERROR_SIZE, ALIGN_LEFT, ERROR_SIZE * CHAR_HEIGHT, EPD_RED, "Error: %08X", error);
+      printfAligned(ERROR_SIZE, ALIGN_LEFT, ERROR_SIZE * CHAR_HEIGHT * 2, EPD_RED, message);
     }
 
     display.display(true);
   }
 
-  // update previous error
+  // store previous error
   errorPrev = error;
 
   esp_sleep_enable_timer_wakeup((DISPLAY_WAIT - measurements * MEASUREMENT_WAIT) * 1000000ull);
