@@ -47,7 +47,7 @@ static constexpr uint8_t CO2_VAL_STRING_LEN = 10;
 static constexpr int32_t UPDATES_PER_DAY = (86400 / DISPLAY_WAIT);
 static constexpr int32_t UPDATES_PER_WEEK = UPDATES_PER_DAY * 7;
 
-static ThinkInk_213_Tricolor_RW display(EPD_DC, EPD_RESET, EPD_CS, SRAM_CS, EPD_BUSY);
+static ThinkInk_213_Tricolor_RW display(EPD_DC, EPD_RESET, EPD_CS, -1, EPD_BUSY);
 
 static SensirionI2CScd4x scd4x;
 
