@@ -8,7 +8,6 @@
 #include <Preferences.h>
 #include <SensirionI2CScd4x.h>
 
-
 static constexpr int16_t EPD_DC = 10;    // can be any pin, but required!
 static constexpr int16_t EPD_CS = 9;     // can be any pin, but required!
 static constexpr int16_t SRAM_CS = 6;    // can set to -1 to not use a pin (uses a lot of RAM!)
@@ -62,14 +61,14 @@ void setup()
   // setup display
   display.begin(THINKINK_TRICOLOR);
 
-  // draw checkerboard pattern to test screen
+  // draw stripe pattern to test screen
   display.clearBuffer();
-  for (int16_t x = 0; x < display.width(); x += 2)
+  for (int16_t x = 0; x < display.width() - 1; x += 2)
   {
-    for (int16_t y = 0; y < display.height(); y += 2)
+    for (int16_t y = 0; y < display.height(); y++)
     {
       display.drawPixel(x, y, EPD_BLACK);
-      display.drawPixel(x + 1, y + 1, EPD_RED);
+      display.drawPixel(x + 1, y, EPD_RED);
     }
   }
   display.display(true);
@@ -161,10 +160,9 @@ void setup()
     // wait a bit to make sure preferences have a chance to get commited to flash before exiting
     delay(1000);
     Serial.println("Done.");
-    
+
     return;
   }
-
 
   // get serial input before starting calibration
   Serial.println("Perform factory reset? [n]");
@@ -273,12 +271,15 @@ void setup()
     Serial.print("Forced recalibration correction = ");
     Serial.println(static_cast<int16_t>(frcCorrection - 0x8000));
   }
-
-  // turn off i2c power
-  digitalWrite(I2C_POWER, LOW);
 }
 
 void loop()
 {
-  delay(10);
+  // turn off i2c power
+  digitalWrite(I2C_POWER, LOW);
+
+  // deep sleep to avoid draining battery after initialization
+  Serial.println("Entering deep sleep");
+  Serial.flush();
+  esp_deep_sleep_start();
 }
