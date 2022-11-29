@@ -61,14 +61,14 @@ void setup()
   // setup display
   display.begin(THINKINK_TRICOLOR);
 
-  // draw checkerboard pattern to test screen
+  // draw stripe pattern to test screen
   display.clearBuffer();
-  for (int16_t x = 0; x < display.width(); x += 2)
+  for (int16_t x = 0; x < display.width() - 1; x += 2)
   {
-    for (int16_t y = 0; y < display.height(); y += 2)
+    for (int16_t y = 0; y < display.height(); y++)
     {
       display.drawPixel(x, y, EPD_BLACK);
-      display.drawPixel(x + 1, y + 1, EPD_RED);
+      display.drawPixel(x + 1, y, EPD_RED);
     }
   }
   display.display(true);
