@@ -174,6 +174,26 @@ void formatCo2(const uint16_t primaryCo2Val, const uint16_t secondaryCo2Val, cha
   }
 }
 
+void drawSparkline()
+{
+  int y = 0;
+  int delta = 1;
+  for(int i=13; i<250; i++){
+    display.drawPixel(i, y, EPD_BLACK);
+    y += delta;
+    if(y > 24)
+    {
+      y = 24;
+      delta = -1;
+    }
+    if(y < 0 )
+    {
+      y = 0;
+      delta = 1;
+    }
+  }
+}
+
 void setup()
 {
   // turn on i2c power
@@ -364,9 +384,8 @@ void setup()
     const int16_t footerY = display.height() - 1 - FOOTER_SIZE * CHAR_HEIGHT;
     if (error == ERROR_NONE)
     {
-      const float dispTemp = (tempUnits == 'C') ? temperature : (temperature / 5.f * 9.f + 32.f);
-      printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "%5.1f%c%c", dispTemp, 0xF7, tempUnits);
-      printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%5.1f%%", humidity);
+      printfAligned(MAXLBL_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "%s", "24");
+      printfAligned(MAXLBL_SIZE, ALIGN_LEFT, headerY + MAXLBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%s", "hr");
 
       uint16_t co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
       printfAligned(BODY_SIZE, ALIGN_CENTER, bodyY, co2Color, "%u", co2);
@@ -375,6 +394,8 @@ void setup()
       uint16_t co2DayMax = 0;
       uint16_t co2WeekMax = 0;
       computeCo2Max(co2DayMax, co2WeekMax);
+
+      drawSparkline();
 
       char formattedCo2Str[CO2_VAL_STRING_LEN];
       formatCo2(co2, co2DayMax, formattedCo2Str);
@@ -386,7 +407,7 @@ void setup()
       printfAligned(MAXVAL_SIZE, ALIGN_RIGHT, maxValueY, co2Color, "%s", formattedCo2Str);
 
       printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY, EPD_BLACK, "%s", "max/");
-      printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY + MAXLBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%s", "day");
+      printfAligned(MAXLBL_SIZE, ALIGN_LEFT, maxLabelY + MAXLBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%s", "24hr");
       printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY, EPD_BLACK, "%s", "max/");
       printfAligned(MAXLBL_SIZE, ALIGN_RIGHT, maxLabelY + MAXLBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%s", "week");
 
@@ -400,7 +421,12 @@ void setup()
       display.fillRect(x0, y0, static_cast<int16_t>(batt / 100.0f * static_cast<float>(w)), h, battColor);
       display.drawRect(x0, y0, w, h, battColor);
       display.fillRect(x1, y0 + h / 4, FOOTER_SIZE * CHAR_WIDTH / 4, h / 2, battColor);
-      printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "%u hPa", pressure);
+    
+      //printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "%u hPa", pressure);
+      const float dispTemp = (tempUnits == 'C') ? temperature : (temperature / 5.f * 9.f + 32.f);
+      //printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "%5.1f%c%c", dispTemp, 0xF7, tempUnits);
+      printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "%5.1f%c%c", dispTemp, 0xF7, tempUnits);
+      //printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%5.1f%%", humidity);
     }
     else
     {
