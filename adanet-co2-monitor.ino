@@ -174,23 +174,17 @@ void formatCo2(const uint16_t primaryCo2Val, const uint16_t secondaryCo2Val, cha
   }
 }
 
-void drawSparkline()
+void drawSparkline(const uint16_t startX, const uint16_t startY, const uint16_t endX, const uint16_t h, uint16_t downsampleFactor, uint16_t co2MaxVal)
 {
-  int y = 0;
-  int delta = 1;
-  for(int i=13; i<250; i++){
-    display.drawPixel(i, y, EPD_BLACK);
-    y += delta;
-    if(y > 24)
-    {
-      y = 24;
-      delta = -1;
-    }
-    if(y < 0 )
-    {
-      y = 0;
-      delta = 1;
-    }
+  uint16_t co2;
+  int16_t co2Color;
+  uint16_t scaledCo2Val;
+
+  for(int i = 0; i < (endX - startX); i++){
+    co2 = co2HistoryRead(i*downsampleFactor);
+    co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
+    scaledCo2Val = (uint16_t)(((float)co2) / ((float)co2MaxVal) * ((float) h));
+    display.drawPixel(endX - i, h - scaledCo2Val, co2Color);
   }
 }
 
@@ -395,7 +389,7 @@ void setup()
       uint16_t co2WeekMax = 0;
       computeCo2Max(co2DayMax, co2WeekMax);
 
-      drawSparkline();
+      drawSparkline(CHAR_WIDTH * 2, headerY, display.width(), HEADER_SIZE * CHAR_HEIGHT, 2, co2DayMax);
 
       char formattedCo2Str[CO2_VAL_STRING_LEN];
       formatCo2(co2, co2DayMax, formattedCo2Str);
