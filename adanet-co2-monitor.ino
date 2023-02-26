@@ -28,6 +28,7 @@ static constexpr int16_t FOOTER_SIZE = 3; // text size of footer
 static constexpr int16_t ERROR_SIZE = 2;  // text size of error
 static constexpr int16_t MAXVAL_SIZE = 2; // text size of max value
 static constexpr int16_t MAXLBL_SIZE = 1; // text size of max label
+static constexpr int16_t PRESS_HUMID_LBL_SIZE = 1; // text size for pressure and humidity
 
 static constexpr uint32_t DISPLAY_WAIT = 180; // wait between display updates in seconds
 
@@ -116,6 +117,20 @@ void printfAligned(const uint8_t size, const Alignment alignment, const int16_t 
   display.print(buffer);
 }
 
+void printfAtXY(const uint8_t size, const int16_t x, const int16_t y, const uint16_t color, const char *fmt, ...)
+{
+  char buffer[MESSAGE_SIZE];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buffer, sizeof(buffer), fmt, args);
+  va_end(args);
+
+  display.setTextSize(size);
+  display.setTextColor(color);
+  display.setCursor(x, y);
+  display.print(buffer);
+}
+
 // co2HisotryAdd() and co2HistoryRead() manipulate a circular buffer
 // stored in co2HisotryFifo array located in RTC memory space which survives deep sleep
 // co2HistoryHead points to where the next value will be stored
@@ -180,11 +195,23 @@ void drawSparkline(const uint16_t startX, const uint16_t startY, const uint16_t 
   int16_t co2Color;
   uint16_t scaledCo2Val;
 
-  for(int i = 0; i < (endX - startX); i++){
-    co2 = co2HistoryRead(i*downsampleFactor);
+  for(int i = 0; i < (endX - startX); i++)
+  {
+    // compute the max co2 value among the downsampleFactor samples
+    uint16_t co2MaxWininSample = 0;
+    for(int j = 0; j < downsampleFactor; j++)
+    {
+      co2 = co2HistoryRead(i * downsampleFactor + j);
+      if(co2 > co2MaxWininSample)
+      {
+        co2MaxWininSample = co2;
+      }
+    }
+    co2 = co2MaxWininSample;
+
     co2Color = co2 >= CO2_LIMIT ? EPD_RED : EPD_BLACK;
     scaledCo2Val = (uint16_t)(((float)co2) / ((float)co2MaxVal) * ((float) h));
-    display.drawPixel(endX - i, h - scaledCo2Val, co2Color);
+    display.drawLine(endX - 1  - i, h, endX - 1 - i, h - scaledCo2Val, co2Color);
   }
 }
 
@@ -416,11 +443,13 @@ void setup()
       display.drawRect(x0, y0, w, h, battColor);
       display.fillRect(x1, y0 + h / 4, FOOTER_SIZE * CHAR_WIDTH / 4, h / 2, battColor);
     
-      //printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "%u hPa", pressure);
+      const int16_t x_press_humid = x0 + w + FOOTER_SIZE * CHAR_WIDTH;
+
+      printfAtXY(1, x_press_humid, footerY, EPD_BLACK, "%u hPa", pressure);
+      printfAtXY(1, x_press_humid, display.height() - PRESS_HUMID_LBL_SIZE * CHAR_HEIGHT, EPD_BLACK, "%5.1f%%", humidity);
+
       const float dispTemp = (tempUnits == 'C') ? temperature : (temperature / 5.f * 9.f + 32.f);
-      //printfAligned(HEADER_SIZE, ALIGN_LEFT, headerY, EPD_BLACK, "%5.1f%c%c", dispTemp, 0xF7, tempUnits);
       printfAligned(FOOTER_SIZE, ALIGN_RIGHT, footerY, EPD_BLACK, "%5.1f%c%c", dispTemp, 0xF7, tempUnits);
-      //printfAligned(HEADER_SIZE, ALIGN_RIGHT, headerY, EPD_BLACK, "%5.1f%%", humidity);
     }
     else
     {
