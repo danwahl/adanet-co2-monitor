@@ -1,18 +1,24 @@
 // #define DEBUG
+// #define USE_MAX17048
+#define USE_TRICOLOR_MFGNR
 
 #include <stdarg.h>
 #include <stdio.h>
 
 #include <Adafruit_DPS310.h>
+#ifdef USE_MAX17048
+#include "Adafruit_MAX1704X.h"
+#else
 #include <Adafruit_LC709203F.h>
+#endif
 #include <Adafruit_ThinkInk.h>
 #include <Preferences.h>
-#include <SensirionI2CScd4x.h>
+#include <SensirionI2cScd4x.h>
 #include <Wire.h>
 
 static constexpr uint32_t VERSION_MAJOR = 0;
 static constexpr uint32_t VERSION_MINOR = 2;
-static constexpr uint32_t VERSION_PATCH = 0;
+static constexpr uint32_t VERSION_PATCH = 1;
 
 static constexpr int16_t EPD_DC = 10;    // can be any pin, but required!
 static constexpr int16_t EPD_CS = 9;     // can be any pin, but required!
@@ -47,11 +53,19 @@ static constexpr uint8_t CO2_VAL_STRING_LEN = 10;
 static constexpr int32_t UPDATES_PER_DAY = (86400 / DISPLAY_WAIT);
 static constexpr int32_t UPDATES_PER_WEEK = UPDATES_PER_DAY * 7;
 
+#ifdef USE_TRICOLOR_MFGNR
+static ThinkInk_213_Tricolor_MFGNR display(EPD_DC, EPD_RESET, EPD_CS, -1, EPD_BUSY);
+#else
 static ThinkInk_213_Tricolor_RW display(EPD_DC, EPD_RESET, EPD_CS, -1, EPD_BUSY);
+#endif
 
-static SensirionI2CScd4x scd4x;
+static SensirionI2cScd4x scd4x;
 
+#ifdef USE_MAX17048
+static Adafruit_MAX17048 maxlipo;
+#else
 static Adafruit_LC709203F lc;
+#endif
 
 static Adafruit_DPS310 dps;
 
@@ -204,6 +218,38 @@ void setup()
   const int8_t tempUnits = pref.getChar("temp_units", 'C');
   pref.end();
 
+float batt = 0.0f;
+#ifdef USE_MAX17048
+  // setup max17048 battery fuel gauge
+  if (!maxlipo.begin())
+  {
+    error = ERROR_BATT_SENSOR << 16;
+    snprintf(message, MESSAGE_SIZE, "Couldn't find Adafruit MAX17048, make sure a battery is plugged in");
+  }
+
+  if (error == ERROR_NONE)
+  {
+#ifdef DEBUG
+    Serial.println(F("Found MAX17048"));
+#endif
+    esp_sleep_enable_timer_wakeup(1000000ull);
+    esp_light_sleep_start();
+
+    batt = maxlipo.cellPercent();
+    maxlipo.hibernate();
+
+#ifdef DEBUG
+    Serial.print("Battery = ");
+    Serial.println(batt);
+#endif
+
+    if (batt < BATT_ERROR_LIMIT)
+    {
+      error = ERROR_LOW_BATT << 16;
+      snprintf(message, MESSAGE_SIZE, "Battery voltage too low, please charge");
+    }
+  }
+#else
   // setup lc709203f battery fuel gauge
   if (!lc.begin())
   {
@@ -211,7 +257,6 @@ void setup()
     snprintf(message, MESSAGE_SIZE, "Couldn't find LC709203F, make sure a battery is plugged in");
   }
 
-  float batt = 0.0f;
   if (error == ERROR_NONE)
   {
 #ifdef DEBUG
@@ -241,6 +286,7 @@ void setup()
       snprintf(message, MESSAGE_SIZE, "Battery voltage too low, please charge");
     }
   }
+#endif
 
   // setup dps310 pressure sensor
   if ((error == ERROR_NONE) && !dps.begin_I2C())
@@ -256,7 +302,7 @@ void setup()
 
     // setup scd4x co2 sensor
     Wire.begin();
-    scd4x.begin(Wire);
+    scd4x.begin(Wire, 0x62);
 
     checkSCD4xError(scd4x.startPeriodicMeasurement());
   }
