@@ -218,7 +218,9 @@ void setup()
   const int8_t tempUnits = pref.getChar("temp_units", 'C');
   pref.end();
 
+float batt = 0.0f;
 #ifdef USE_MAX17048
+  // setup max17048 battery fuel gauge
   if (!maxlipo.begin())
   {
     error = ERROR_BATT_SENSOR << 16;
@@ -230,6 +232,22 @@ void setup()
 #ifdef DEBUG
     Serial.println(F("Found MAX17048"));
 #endif
+    esp_sleep_enable_timer_wakeup(1000000ull);
+    esp_light_sleep_start();
+
+    batt = maxlipo.cellPercent();
+    maxlipo.hibernate();
+
+#ifdef DEBUG
+    Serial.print("Battery = ");
+    Serial.println(batt);
+#endif
+
+    if (batt < BATT_ERROR_LIMIT)
+    {
+      error = ERROR_LOW_BATT << 16;
+      snprintf(message, MESSAGE_SIZE, "Battery voltage too low, please charge");
+    }
   }
 #else
   // setup lc709203f battery fuel gauge
@@ -253,6 +271,20 @@ void setup()
 #endif
 
     lc.setPackSize(LC709203F_APA_2000MAH);
+
+    batt = lc.cellPercent();
+    lc.setPowerMode(LC709203F_POWER_SLEEP);
+
+#ifdef DEBUG
+    Serial.print("Battery = ");
+    Serial.println(batt);
+#endif
+
+    if (batt < BATT_ERROR_LIMIT)
+    {
+      error = ERROR_LOW_BATT << 16;
+      snprintf(message, MESSAGE_SIZE, "Battery voltage too low, please charge");
+    }
   }
 #endif
 
@@ -337,29 +369,6 @@ void setup()
   {
     error = ERROR_CO2_SENSOR << 16;
     snprintf(message, MESSAGE_SIZE, "Invalid sample detected");
-  }
-
-  float batt = 0.0f;
-  if (error == ERROR_NONE)
-  {
-#ifdef USE_MAX17048
-    batt = maxlipo.cellPercent();
-    maxlipo.hibernate();
-#else
-    batt = lc.cellPercent();
-    lc.setPowerMode(LC709203F_POWER_SLEEP);
-#endif
-  }
-
-#ifdef DEBUG
-  Serial.print("Battery = ");
-  Serial.println(batt);
-#endif
-
-  if (batt < BATT_ERROR_LIMIT)
-  {
-    error = ERROR_LOW_BATT << 16;
-    snprintf(message, MESSAGE_SIZE, "Battery voltage too low, please charge");
   }
 
   // turn off i2c power
