@@ -253,7 +253,7 @@ void setup()
     Serial.print(F("Pressure = "));
     Serial.println(pressure_event.pressure);
 
-    if (checkSCD4xError(scd4x.setAmbientPressure(pressure_event.pressure)))
+    if (checkSCD4xError(scd4x.setAmbientPressureRaw(pressure_event.pressure)))
     {
       return;
     }

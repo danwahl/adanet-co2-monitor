@@ -1,5 +1,5 @@
 // #define DEBUG
-// #define USE_MAX17048
+#define USE_MAX17048
 #define USE_TRICOLOR_MFGNR
 
 #include <stdarg.h>
@@ -18,7 +18,7 @@
 
 static constexpr uint32_t VERSION_MAJOR = 0;
 static constexpr uint32_t VERSION_MINOR = 2;
-static constexpr uint32_t VERSION_PATCH = 1;
+static constexpr uint32_t VERSION_PATCH = 2;
 
 static constexpr int16_t EPD_DC = 10;    // can be any pin, but required!
 static constexpr int16_t EPD_CS = 9;     // can be any pin, but required!
@@ -333,7 +333,7 @@ float batt = 0.0f;
 #endif
 
       pressure = static_cast<uint16_t>(pressure_event.pressure);
-      checkSCD4xError(scd4x.setAmbientPressure(pressure));
+      checkSCD4xError(scd4x.setAmbientPressureRaw(pressure));
     }
     else
     {
